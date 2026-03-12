@@ -1,0 +1,9 @@
+# Rediriger tout vers le dossier public
+# Placer ce fichier à la RACINE du domaine sur Hostinger (public_html/)
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Rediriger vers le dossier public de Laravel
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
