@@ -4,11 +4,18 @@ namespace App\Http\Controllers;
 
 use App\Models\ActivityLog;
 use App\Models\Client;
+use App\Models\DeliveryNote;
+use App\Models\Expert;
+use App\Models\Invoice;
+use App\Models\Product;
+use App\Models\PurchaseOrder;
 use App\Models\RepairOrder;
 use App\Models\RepairOrderItem;
 use App\Models\RepairOrderPhoto;
+use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\StockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -67,28 +74,22 @@ class RepairOrderController extends Controller
     }
 
     // ══════════════════════════════════════════════
-    // CREATE
+    // CREATE - Modification 5 : Bloqué, rediriger vers Devis
     // ══════════════════════════════════════════════
 
     public function create(Request $request)
     {
-        $clients = Client::orderBy('nom_complet')->get();
-        $vehicles = collect();
-        $techniciens = User::where('role', 'technicien')->orderBy('name')->get();
-        $numero = RepairOrder::generateNumero();
-
-        // Pré-sélection client si paramètre
-        $selectedClient = null;
-        if ($clientId = $request->get('client_id')) {
-            $selectedClient = Client::find($clientId);
-            if ($selectedClient) {
-                $vehicles = $selectedClient->vehicles()->orderBy('immatriculation')->get();
-            }
+        // Si un quote_id est fourni (conversion depuis un devis accepté), permettre la création
+        if ($request->has('from_quote')) {
+            // Cette route est utilisée en interne lors de la conversion Devis → OR
+            // La création directe est gérée par Quote::convertToRepairOrder()
+            return redirect()->route('quotes.index')
+                ->with('info', 'Veuillez créer un devis d\'abord, puis le convertir en Ordre de Réparation.');
         }
 
-        return view('repair-orders.create', compact(
-            'clients', 'vehicles', 'techniciens', 'numero', 'selectedClient'
-        ));
+        // Modification 5 : Bloquer la création directe, rediriger vers les devis
+        return redirect()->route('quotes.create')
+            ->with('info', 'La création d\'un Ordre de Réparation nécessite un devis préalable. Veuillez d\'abord créer un devis, puis le convertir en OR une fois accepté.');
     }
 
     // ══════════════════════════════════════════════
@@ -212,7 +213,12 @@ class RepairOrderController extends Controller
 
     public function show(RepairOrder $repairOrder)
     {
-        $repairOrder->load(['client', 'vehicle', 'technicien', 'createdBy', 'items', 'photos']);
+        $repairOrder->load([
+            'client', 'vehicle', 'technicien', 'createdBy',
+            'items', 'items.product', 'items.fournisseur',
+            'photos', 'quote', 'expert', 'expert.emails',
+            'invoice', 'deliveryNote', 'notificationLogs',
+        ]);
 
         // Vérifier accès technicien
         if (auth()->user()->isTechnicien() && $repairOrder->technicien_id !== auth()->id()) {
@@ -224,7 +230,21 @@ class RepairOrderController extends Controller
             fn($label, $status) => $repairOrder->canTransitionTo($status)
         );
 
-        return view('repair-orders.show', compact('repairOrder', 'transitions'));
+        // Modification 8 : Résumé financier
+        $resumeFinancier = $repairOrder->resume_financier;
+
+        // Modification 7 : Produits disponibles pour ajout
+        $products = Product::where('actif', true)
+            ->where('quantite_stock', '>', 0)
+            ->orderBy('designation')
+            ->get(['id', 'designation', 'reference', 'prix_vente', 'prix_achat', 'quantite_stock', 'unite']);
+
+        // Experts pour association
+        $experts = Expert::actifs()->orderBy('nom_complet')->get();
+
+        return view('repair-orders.show', compact(
+            'repairOrder', 'transitions', 'resumeFinancier', 'products', 'experts'
+        ));
     }
 
     // ══════════════════════════════════════════════
@@ -431,5 +451,162 @@ class RepairOrderController extends Controller
             ->get(['id', 'immatriculation', 'marque', 'modele', 'couleur', 'kilometrage']);
 
         return response()->json($vehicles);
+    }
+
+    // ══════════════════════════════════════════════
+    // Modification 7 : Ajouter une pièce du stock
+    // ══════════════════════════════════════════════
+
+    public function addProduct(Request $request, RepairOrder $repairOrder)
+    {
+        if (in_array($repairOrder->status, ['facture', 'annule', 'livre'])) {
+            return back()->with('error', 'Impossible d\'ajouter des pièces à cet ordre.');
+        }
+
+        $data = $request->validate([
+            'product_id' => ['required', 'exists:products,id'],
+            'quantite'   => ['required', 'numeric', 'min:0.01'],
+        ]);
+
+        $product = Product::findOrFail($data['product_id']);
+        $stockService = new StockService();
+
+        $result = $stockService->addProductToOrder($repairOrder, $product, $data['quantite']);
+
+        if (!empty($result['needs_order'])) {
+            return back()->with('warning', $result['message']);
+        }
+
+        $flash = 'success';
+        $message = $result['message'];
+        if (!empty($result['stock_alert'])) {
+            $message .= ' ⚠️ Alerte : le stock de cette pièce est bas.';
+            $flash = 'warning';
+        }
+
+        return back()->with($flash, $message);
+    }
+
+    // ══════════════════════════════════════════════
+    // Modification 7 : Retirer une pièce (retour stock)
+    // ══════════════════════════════════════════════
+
+    public function removeProduct(RepairOrder $repairOrder, RepairOrderItem $item)
+    {
+        if ($item->repair_order_id !== $repairOrder->id) {
+            abort(404);
+        }
+
+        $stockService = new StockService();
+        $stockService->returnToStock($item, $repairOrder);
+
+        $designation = $item->designation;
+        $item->delete();
+
+        return back()->with('success', "Pièce « {$designation} » retirée de l'OR et retournée au stock.");
+    }
+
+    // ══════════════════════════════════════════════
+    // Modification 6 : Générer une facture depuis l'OR
+    // ══════════════════════════════════════════════
+
+    public function generateInvoice(RepairOrder $repairOrder)
+    {
+        // Vérifier qu'il n'y a pas déjà une facture active
+        $existing = Invoice::where('repair_order_id', $repairOrder->id)
+            ->whereNotIn('statut', ['annulee'])
+            ->first();
+
+        if ($existing) {
+            return redirect()->route('invoices.show', $existing)
+                ->with('info', "Une facture existe déjà pour cet OR : {$existing->numero}");
+        }
+
+        // Créer la facture depuis l'OR
+        $invoice = Invoice::createFromRepairOrder($repairOrder);
+
+        ActivityLog::log('create', "Facture {$invoice->numero} générée depuis OR {$repairOrder->numero}", $invoice);
+
+        return redirect()->route('invoices.show', $invoice)
+            ->with('success', "La facture {$invoice->numero} a été générée depuis l'OR {$repairOrder->numero}.");
+    }
+
+    // ══════════════════════════════════════════════
+    // Modification 6 : Générer un bon de livraison depuis l'OR
+    // ══════════════════════════════════════════════
+
+    public function generateDeliveryNote(RepairOrder $repairOrder)
+    {
+        // Vérifier qu'il n'y a pas déjà un BL
+        if ($repairOrder->deliveryNote) {
+            return redirect()->route('delivery-notes.show', $repairOrder->deliveryNote)
+                ->with('info', "Un bon de livraison existe déjà pour cet OR.");
+        }
+
+        $bl = DeliveryNote::create([
+            'numero'           => DeliveryNote::generateNumero(),
+            'repair_order_id'  => $repairOrder->id,
+            'client_id'        => $repairOrder->client_id,
+            'vehicle_id'       => $repairOrder->vehicle_id,
+            'created_by'       => auth()->id(),
+            'date_livraison'   => now(),
+            'kilometrage_sortie' => $repairOrder->kilometrage_sortie,
+            'observations'     => "Bon de livraison généré depuis OR {$repairOrder->numero}",
+            'statut'           => 'brouillon',
+        ]);
+
+        ActivityLog::log('create', "BL {$bl->numero} généré depuis OR {$repairOrder->numero}", $bl);
+
+        return redirect()->route('delivery-notes.show', $bl)
+            ->with('success', "Le bon de livraison {$bl->numero} a été généré.");
+    }
+
+    // ══════════════════════════════════════════════
+    // Modification 6 : Générer un bon de commande depuis l'OR
+    // ══════════════════════════════════════════════
+
+    public function generatePurchaseOrder(Request $request, RepairOrder $repairOrder)
+    {
+        $data = $request->validate([
+            'supplier_id' => ['required', 'exists:suppliers,id'],
+        ]);
+
+        $supplier = Supplier::findOrFail($data['supplier_id']);
+
+        // Récupérer les pièces de l'OR qui nécessitent une commande
+        $itemsToOrder = $repairOrder->items()
+            ->where('source', 'commande')
+            ->whereNull('fournisseur_id')
+            ->orWhere('fournisseur_id', $supplier->id)
+            ->get();
+
+        $po = PurchaseOrder::create([
+            'numero'            => PurchaseOrder::generateNumero(),
+            'supplier_id'       => $supplier->id,
+            'repair_order_id'   => $repairOrder->id,
+            'created_by'        => auth()->id(),
+            'date_commande'     => now(),
+            'statut'            => 'brouillon',
+            'taux_tva'          => $repairOrder->taux_tva ?? 20,
+            'notes'             => "Bon de commande généré depuis OR {$repairOrder->numero}",
+        ]);
+
+        // Copier les pièces pertinentes
+        foreach ($itemsToOrder as $item) {
+            $po->items()->create([
+                'product_id'    => $item->product_id,
+                'designation'   => $item->designation,
+                'reference'     => $item->reference,
+                'quantite'      => $item->quantite,
+                'unite'         => $item->unite,
+                'prix_unitaire' => $item->prix_achat > 0 ? $item->prix_achat : $item->prix_unitaire,
+                'taux_tva'      => $item->taux_tva,
+            ]);
+        }
+
+        ActivityLog::log('create', "BC {$po->numero} généré depuis OR {$repairOrder->numero}", $po);
+
+        return redirect()->route('suppliers.order', [$supplier, $po])
+            ->with('success', "Le bon de commande {$po->numero} a été généré.");
     }
 }

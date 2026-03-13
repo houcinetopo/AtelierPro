@@ -7,9 +7,10 @@ use Illuminate\Database\Eloquent\Model;
 class RepairOrderItem extends Model
 {
     protected $fillable = [
-        'repair_order_id', 'type', 'designation', 'reference', 'description',
-        'quantite', 'unite', 'prix_unitaire', 'remise',
-        'montant_ht', 'taux_tva', 'montant_ttc', 'ordre',
+        'repair_order_id', 'product_id', 'fournisseur_id',
+        'type', 'designation', 'reference', 'description',
+        'quantite', 'unite', 'prix_unitaire', 'prix_achat', 'remise',
+        'montant_ht', 'taux_tva', 'montant_ttc', 'ordre', 'source',
     ];
 
     protected function casts(): array
@@ -17,6 +18,7 @@ class RepairOrderItem extends Model
         return [
             'quantite'      => 'decimal:2',
             'prix_unitaire' => 'decimal:2',
+            'prix_achat'    => 'decimal:2',
             'remise'        => 'decimal:2',
             'montant_ht'    => 'decimal:2',
             'taux_tva'      => 'decimal:2',
@@ -45,6 +47,16 @@ class RepairOrderItem extends Model
     public function repairOrder()
     {
         return $this->belongsTo(RepairOrder::class);
+    }
+
+    public function product()
+    {
+        return $this->belongsTo(Product::class);
+    }
+
+    public function fournisseur()
+    {
+        return $this->belongsTo(Supplier::class, 'fournisseur_id');
     }
 
     // ── Accessors ──

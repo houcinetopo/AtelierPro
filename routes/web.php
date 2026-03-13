@@ -12,6 +12,8 @@ use App\Http\Controllers\DeliveryNoteController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\QuoteController;
+use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\ExpertController;
 use App\Http\Controllers\RepairOrderController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\TvaController;
@@ -174,4 +176,27 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/{tva}/calculate', [TvaController::class, 'calculate'])->name('calculate');
         Route::patch('/{tva}/statut', [TvaController::class, 'updateStatut'])->name('update-statut');
     });
+
+    // ══════════════════════════════════════════════
+    // Phase 2 : Nouvelles routes (Améliorations)
+    // ══════════════════════════════════════════════
+
+    // Module 14 : Experts (Modification 4)
+    Route::resource('experts', ExpertController::class);
+
+    // Module 15 : Documents - PDF & Email (Modification 2)
+    Route::prefix('documents')->name('documents.')->group(function () {
+        Route::get('/{type}/{id}/download', [DocumentController::class, 'download'])->name('download');
+        Route::get('/{type}/{id}/print', [DocumentController::class, 'print'])->name('print');
+        Route::post('/{type}/{id}/email', [DocumentController::class, 'sendEmail'])->name('email');
+    });
+
+    // Module 16 : Actions OR - Stock (Modification 7)
+    Route::post('repair-orders/{repair_order}/add-product', [RepairOrderController::class, 'addProduct'])->name('repair-orders.add-product');
+    Route::delete('repair-orders/{repair_order}/remove-product/{item}', [RepairOrderController::class, 'removeProduct'])->name('repair-orders.remove-product');
+
+    // Module 17 : Génération documents depuis OR (Modification 6)
+    Route::post('repair-orders/{repair_order}/generate-invoice', [RepairOrderController::class, 'generateInvoice'])->name('repair-orders.generate-invoice');
+    Route::post('repair-orders/{repair_order}/generate-delivery-note', [RepairOrderController::class, 'generateDeliveryNote'])->name('repair-orders.generate-delivery-note');
+    Route::post('repair-orders/{repair_order}/generate-purchase-order', [RepairOrderController::class, 'generatePurchaseOrder'])->name('repair-orders.generate-purchase-order');
 });

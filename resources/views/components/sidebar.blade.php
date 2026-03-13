@@ -42,6 +42,8 @@
                 ['route' => 'suppliers.index', 'icon' => 'factory', 'label' => 'Fournisseurs', 'module' => 'suppliers'],
                 // Module 13
                 ['route' => 'tva.index', 'icon' => 'calculator', 'label' => 'TVA', 'module' => 'tva'],
+                // Module 14 - Experts
+                ['route' => 'experts.index', 'icon' => 'user-check', 'label' => 'Experts', 'module' => 'experts'],
             ];
         @endphp
 

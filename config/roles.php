@@ -40,12 +40,12 @@ return [
             'dashboard', 'settings', 'users', 'employees', 'clients',
             'vehicles', 'repair_orders', 'delivery_notes', 'quotes',
             'invoices', 'cash', 'stock', 'suppliers', 'tva',
-            'attestations', 'activity_logs', 'reports',
+            'attestations', 'activity_logs', 'reports', 'experts',
         ],
         'gestionnaire' => [
             'dashboard', 'employees', 'clients', 'vehicles',
             'repair_orders', 'delivery_notes', 'quotes', 'invoices',
-            'cash', 'stock', 'suppliers', 'attestations', 'reports',
+            'cash', 'stock', 'suppliers', 'attestations', 'reports', 'experts',
         ],
         'comptable' => [
             'dashboard', 'clients', 'invoices', 'cash', 'tva',

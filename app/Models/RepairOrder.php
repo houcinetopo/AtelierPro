@@ -113,6 +113,26 @@ class RepairOrder extends Model
         return $this->hasOne(Invoice::class);
     }
 
+    public function quote()
+    {
+        return $this->belongsTo(Quote::class);
+    }
+
+    public function expert()
+    {
+        return $this->belongsTo(Expert::class);
+    }
+
+    public function purchaseOrders()
+    {
+        return $this->hasMany(PurchaseOrder::class);
+    }
+
+    public function notificationLogs()
+    {
+        return $this->morphMany(NotificationLog::class, 'notifiable');
+    }
+
     // ──────────────────────────────────────
     // Scopes
     // ──────────────────────────────────────
@@ -198,6 +218,84 @@ class RepairOrder extends Model
         if (!$this->date_livraison_effective) return null;
         $diff = $this->date_reception->diff($this->date_livraison_effective);
         return $diff->days . ' jour' . ($diff->days > 1 ? 's' : '');
+    }
+
+    // ──────────────────────────────────────
+    // Calcul Rentabilité (Modification 8)
+    // ──────────────────────────────────────
+
+    /**
+     * Coût total des pièces (prix d'achat)
+     */
+    public function getCoutPiecesAttribute(): float
+    {
+        return (float) $this->items()
+            ->whereIn('type', ['piece', 'fourniture'])
+            ->selectRaw('SUM(quantite * prix_achat) as total')
+            ->value('total') ?? 0;
+    }
+
+    /**
+     * Coût de la main-d'œuvre (prix coûtant interne, basé sur le taux horaire)
+     */
+    public function getCoutMainOeuvreAttribute(): float
+    {
+        return (float) $this->items()
+            ->where('type', 'main_oeuvre')
+            ->selectRaw('SUM(quantite * prix_achat) as total')
+            ->value('total') ?? 0;
+    }
+
+    /**
+     * Coût total de la réparation (pièces + main-d'œuvre + sous-traitance)
+     */
+    public function getCoutTotalAttribute(): float
+    {
+        return (float) $this->items()
+            ->selectRaw('SUM(quantite * prix_achat) as total')
+            ->value('total') ?? 0;
+    }
+
+    /**
+     * Prix facturé au client (HT)
+     */
+    public function getPrixFactureAttribute(): float
+    {
+        return (float) $this->total_ht;
+    }
+
+    /**
+     * Bénéfice brut = Prix facturé - Coût total
+     */
+    public function getBeneficeAttribute(): float
+    {
+        return $this->prix_facture - $this->cout_total;
+    }
+
+    /**
+     * Marge en pourcentage
+     */
+    public function getMargeAttribute(): float
+    {
+        if ($this->prix_facture <= 0) return 0;
+        return round(($this->benefice / $this->prix_facture) * 100, 1);
+    }
+
+    /**
+     * Résumé financier complet
+     */
+    public function getResumeFinancierAttribute(): array
+    {
+        return [
+            'cout_pieces'       => $this->cout_pieces,
+            'cout_main_oeuvre'  => $this->cout_main_oeuvre,
+            'cout_total'        => $this->cout_total,
+            'prix_facture_ht'   => $this->prix_facture,
+            'tva'               => (float) $this->montant_tva,
+            'prix_facture_ttc'  => (float) $this->total_ttc,
+            'benefice'          => $this->benefice,
+            'marge'             => $this->marge,
+        ];
     }
 
     // ──────────────────────────────────────

@@ -10,7 +10,7 @@ class PurchaseOrder extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'numero', 'supplier_id', 'created_by',
+        'numero', 'supplier_id', 'repair_order_id', 'created_by',
         'date_commande', 'date_livraison_prevue', 'date_reception',
         'statut',
         'total_ht', 'taux_tva', 'montant_tva', 'total_ttc',
@@ -71,6 +71,11 @@ class PurchaseOrder extends Model
     public function supplier()
     {
         return $this->belongsTo(Supplier::class);
+    }
+
+    public function repairOrder()
+    {
+        return $this->belongsTo(RepairOrder::class);
     }
 
     public function createdBy()
