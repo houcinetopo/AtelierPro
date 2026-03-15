@@ -302,17 +302,19 @@
                     Documents
                 </h2>
                 <div class="space-y-2">
-                    @if($repairOrder->quote)
-                    <a href="{{ route('quotes.show', $repairOrder->quote) }}" class="flex items-center gap-3 p-2.5 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition group">
+                    @php
+                        $initialQuote = $repairOrder->quote ?? \App\Models\Quote::where('repair_order_id', $repairOrder->id)->where('type_devis', '!=', 'additif')->first();
+                        $additifQuotes = \App\Models\Quote::where('linked_repair_order_id', $repairOrder->id)->get();
+                    @endphp
+                    @if($initialQuote)
+                    <a href="{{ route('quotes.show', $initialQuote) }}" class="flex items-center gap-3 p-2.5 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition group">
                         <span class="w-8 h-8 flex items-center justify-center rounded-lg bg-blue-100 text-blue-600 text-xs font-bold">DV</span>
                         <div class="flex-1 min-w-0">
-                            <p class="text-sm font-medium text-gray-800 group-hover:text-blue-700 truncate">{{ $repairOrder->quote->numero }}</p>
+                            <p class="text-sm font-medium text-gray-800 group-hover:text-blue-700 truncate">{{ $initialQuote->numero }}</p>
                             <p class="text-xs text-gray-400">Devis initial</p>
                         </div>
                     </a>
                     @endif
-
-                    @php $additifQuotes = \App\Models\Quote::where('linked_repair_order_id', $repairOrder->id)->get(); @endphp
                     @foreach($additifQuotes as $aq)
                     <a href="{{ route('quotes.show', $aq) }}" class="flex items-center gap-3 p-2.5 rounded-lg border border-amber-200 hover:bg-amber-50 transition group">
                         <span class="w-8 h-8 flex items-center justify-center rounded-lg bg-amber-100 text-amber-600 text-xs font-bold">DA</span>
@@ -354,7 +356,7 @@
                     </a>
                     @endforeach
 
-                    @if(!$repairOrder->quote && !$repairOrder->invoice && !$repairOrder->deliveryNote && $repairOrder->purchaseOrders->isEmpty() && $additifQuotes->isEmpty())
+                    @if(!$initialQuote && !$repairOrder->invoice && !$repairOrder->deliveryNote && $repairOrder->purchaseOrders->isEmpty() && $additifQuotes->isEmpty())
                     <p class="text-xs text-gray-400 text-center py-3">Aucun document lié</p>
                     @endif
 
