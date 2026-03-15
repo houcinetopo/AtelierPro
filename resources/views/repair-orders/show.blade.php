@@ -9,7 +9,7 @@
 
 @section('content')
 <div class="space-y-4">
-    {{-- Header --}}
+    {{-- ═══════════ HEADER ═══════════ --}}
     <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
             <div class="flex items-center gap-3">
@@ -23,13 +23,13 @@
             </div>
             <p class="text-sm text-gray-500 mt-1">
                 Créé le {{ $repairOrder->created_at->format('d/m/Y à H:i') }}
-                @if($repairOrder->createdBy)
-                    par {{ $repairOrder->createdBy->name }}
+                @if($repairOrder->createdBy) par {{ $repairOrder->createdBy->name }} @endif
+                @if($repairOrder->quote)
+                    — issu du devis <a href="{{ route('quotes.show', $repairOrder->quote) }}" class="text-primary-600 hover:underline">{{ $repairOrder->quote->numero }}</a>
                 @endif
             </p>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
-            {{-- Transitions de statut --}}
             @if($transitions->isNotEmpty() && auth()->user()->hasAnyRole(['admin', 'gestionnaire']))
             <div class="flex items-center gap-1" x-data="{ open: false }">
                 <div class="relative">
@@ -56,24 +56,17 @@
             </div>
             @endif
 
-            @if(auth()->user()->hasAnyRole(['admin', 'gestionnaire']) && in_array($repairOrder->status, ['termine', 'livre']) && !$repairOrder->deliveryNote)
-            <a href="{{ route('delivery-notes.create', ['repair_order_id' => $repairOrder->id]) }}"
-               class="inline-flex items-center gap-2 px-3 py-2.5 text-sm text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors">
-                <i data-lucide="truck" class="w-4 h-4"></i> Créer BL
-            </a>
-            @endif
-
-            @if(auth()->user()->hasAnyRole(['admin', 'gestionnaire']) && in_array($repairOrder->status, ['livre', 'termine']) && !$repairOrder->invoice)
-            <a href="{{ route('invoices.create', ['repair_order_id' => $repairOrder->id]) }}"
-               class="inline-flex items-center gap-2 px-3 py-2.5 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors">
-                <i data-lucide="receipt" class="w-4 h-4"></i> Facturer
-            </a>
-            @endif
-
             @if(auth()->user()->hasAnyRole(['admin', 'gestionnaire']) && !in_array($repairOrder->status, ['facture', 'annule']))
             <a href="{{ route('repair-orders.edit', $repairOrder) }}"
                class="inline-flex items-center gap-2 px-3 py-2.5 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">
                 <i data-lucide="edit-3" class="w-4 h-4"></i> Modifier
+            </a>
+            @endif
+
+            @if(!in_array($repairOrder->status, ['facture', 'annule', 'livre']))
+            <a href="{{ route('repair-orders.additif-quote', $repairOrder) }}"
+               class="inline-flex items-center gap-2 px-3 py-2.5 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100">
+                <i data-lucide="file-plus" class="w-4 h-4"></i> Devis Additif
             </a>
             @endif
         </div>
@@ -134,213 +127,286 @@
 
             {{-- ═══════════ LIGNES DE TRAVAUX ═══════════ --}}
             <div class="bg-white rounded-xl border border-gray-200">
-                <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+                <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
                     <h2 class="text-base font-semibold text-gray-800">Travaux & Pièces</h2>
                     <span class="text-xs text-gray-400">{{ $repairOrder->items->count() }} ligne(s)</span>
                 </div>
-
                 @if($repairOrder->items->count() > 0)
                 <div class="overflow-x-auto">
                     <table class="w-full text-sm">
-                        <thead class="bg-gray-50">
+                        <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
                             <tr>
-                                <th class="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase">Type</th>
-                                <th class="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase">Désignation</th>
-                                <th class="text-right px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase">Qté</th>
-                                <th class="text-right px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase">P.U.</th>
-                                <th class="text-right px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase">Remise</th>
-                                <th class="text-right px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase">Montant HT</th>
+                                <th class="px-4 py-2 text-left">Type</th>
+                                <th class="px-4 py-2 text-left">Désignation</th>
+                                <th class="px-4 py-2 text-right">Qté</th>
+                                <th class="px-4 py-2 text-right">P.U.</th>
+                                <th class="px-4 py-2 text-right">TVA</th>
+                                <th class="px-4 py-2 text-right">Remise</th>
+                                <th class="px-4 py-2 text-right">Montant HT</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
                             @foreach($repairOrder->items as $item)
-                            <tr class="hover:bg-gray-50">
+                            <tr class="hover:bg-gray-50/50">
                                 <td class="px-4 py-2.5">
-                                    @php
-                                        $typeColors = ['main_oeuvre' => 'blue', 'piece' => 'orange', 'fourniture' => 'green', 'sous_traitance' => 'purple'];
-                                        $tc = $typeColors[$item->type] ?? 'gray';
-                                    @endphp
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-{{ $tc }}-50 text-{{ $tc }}-700">
-                                        {{ $item->type_label }}
-                                    </span>
+                                    @php $typeColor = ['main_oeuvre'=>'blue','piece'=>'orange','fourniture'=>'green','sous_traitance'=>'purple'][$item->type] ?? 'gray'; @endphp
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-{{ $typeColor }}-50 text-{{ $typeColor }}-700">{{ $item->type_label }}</span>
                                 </td>
                                 <td class="px-4 py-2.5">
-                                    <p class="font-medium text-gray-800 text-xs">{{ $item->designation }}</p>
-                                    @if($item->reference)
-                                        <p class="text-xs text-gray-400">Réf: {{ $item->reference }}</p>
+                                    <span class="text-gray-800">{{ $item->designation }}</span>
+                                    @if($item->reference) <span class="text-xs text-gray-400 ml-1">({{ $item->reference }})</span> @endif
+                                    @if($item->source === 'stock')
+                                        <span class="inline-flex items-center ml-1 px-1.5 py-0.5 rounded text-xs bg-green-50 text-green-600">Stock</span>
+                                    @elseif($item->source === 'commande')
+                                        <span class="inline-flex items-center ml-1 px-1.5 py-0.5 rounded text-xs bg-amber-50 text-amber-600">Commande</span>
                                     @endif
                                 </td>
-                                <td class="px-4 py-2.5 text-right text-xs text-gray-600">{{ $item->quantite }} {{ $item->unite }}</td>
-                                <td class="px-4 py-2.5 text-right text-xs text-gray-600">{{ number_format($item->prix_unitaire, 2, ',', ' ') }}</td>
-                                <td class="px-4 py-2.5 text-right text-xs text-gray-600">
-                                    {{ $item->remise > 0 ? $item->remise . '%' : '—' }}
+                                <td class="px-4 py-2.5 text-right text-gray-600">{{ number_format($item->quantite, 2) }} {{ $item->unite }}</td>
+                                <td class="px-4 py-2.5 text-right text-gray-600">{{ number_format($item->prix_unitaire, 2, ',', ' ') }}</td>
+                                <td class="px-4 py-2.5 text-right text-gray-600">{{ number_format($item->taux_tva, 0) }}%</td>
+                                <td class="px-4 py-2.5 text-right">
+                                    @if($item->remise > 0) <span class="text-red-500">-{{ $item->remise }}%</span> @else — @endif
                                 </td>
-                                <td class="px-4 py-2.5 text-right font-semibold text-gray-800 text-xs">
-                                    {{ number_format($item->montant_ht, 2, ',', ' ') }}
-                                </td>
+                                <td class="px-4 py-2.5 text-right font-medium text-gray-800">{{ number_format($item->montant_ht, 2, ',', ' ') }}</td>
                             </tr>
                             @endforeach
                         </tbody>
-                        <tfoot class="bg-gray-50 border-t border-gray-200">
-                            <tr>
-                                <td colspan="5" class="px-4 py-2 text-right text-xs text-gray-500">Total HT</td>
-                                <td class="px-4 py-2 text-right font-semibold text-gray-700 text-sm">{{ number_format($repairOrder->total_ht, 2, ',', ' ') }}</td>
+                        <tfoot class="bg-gray-50/50 text-sm">
+                            <tr class="border-t border-gray-200">
+                                <td colspan="5"></td>
+                                <td class="px-4 py-1.5 text-right text-xs text-gray-500">Total HT</td>
+                                <td class="px-4 py-1.5 text-right font-semibold">{{ number_format($repairOrder->total_ht, 2, ',', ' ') }}</td>
                             </tr>
                             <tr>
-                                <td colspan="5" class="px-4 py-1.5 text-right text-xs text-gray-500">TVA ({{ $repairOrder->taux_tva }}%)</td>
-                                <td class="px-4 py-1.5 text-right text-gray-600 text-sm">{{ number_format($repairOrder->montant_tva, 2, ',', ' ') }}</td>
+                                <td colspan="5"></td>
+                                <td class="px-4 py-1.5 text-right text-xs text-gray-500">TVA</td>
+                                <td class="px-4 py-1.5 text-right text-gray-600">{{ number_format($repairOrder->montant_tva, 2, ',', ' ') }}</td>
                             </tr>
                             @if($repairOrder->remise_globale > 0)
                             <tr>
-                                <td colspan="5" class="px-4 py-1.5 text-right text-xs text-red-500">Remise globale</td>
-                                <td class="px-4 py-1.5 text-right text-red-600 text-sm">-{{ number_format($repairOrder->remise_globale, 2, ',', ' ') }}</td>
+                                <td colspan="5"></td>
+                                <td class="px-4 py-1.5 text-right text-xs text-red-500">Remise</td>
+                                <td class="px-4 py-1.5 text-right text-red-600">-{{ number_format($repairOrder->remise_globale, 2, ',', ' ') }}</td>
                             </tr>
                             @endif
                             <tr class="border-t border-gray-300">
-                                <td colspan="5" class="px-4 py-2.5 text-right font-semibold text-gray-700">Net à payer</td>
-                                <td class="px-4 py-2.5 text-right">
-                                    <span class="text-lg font-bold text-primary-600">{{ number_format($repairOrder->net_a_payer, 2, ',', ' ') }}</span>
-                                    <span class="text-xs text-gray-400 ml-1">DH</span>
-                                </td>
+                                <td colspan="5"></td>
+                                <td class="px-4 py-2 text-right text-xs font-semibold text-gray-700">Net à payer</td>
+                                <td class="px-4 py-2 text-right text-lg font-bold text-primary-600">{{ number_format($repairOrder->net_a_payer, 2, ',', ' ') }} <span class="text-xs text-gray-400">DH</span></td>
                             </tr>
                         </tfoot>
                     </table>
                 </div>
                 @else
-                <div class="px-5 py-10 text-center text-gray-400">
+                <div class="p-8 text-center text-gray-400">
                     <i data-lucide="package" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
-                    <p class="text-sm">Aucune ligne de travaux ajoutée</p>
+                    <p class="text-sm">Aucune ligne de travaux</p>
                 </div>
                 @endif
             </div>
 
-            {{-- ═══════════ PHOTOS ═══════════ --}}
-            @if($repairOrder->photos->count() > 0)
+            {{-- ═══════════ AJOUTER PIÈCE DU STOCK ═══════════ --}}
+            @if(!in_array($repairOrder->status, ['facture', 'annule', 'livre']) && auth()->user()->hasAnyRole(['admin', 'gestionnaire']))
+            @include('components.stock-picker', ['repairOrder' => $repairOrder, 'products' => $products])
+            @endif
+
+            {{-- ═══════════ PHOTOS DU VÉHICULE & OR ═══════════ --}}
+            @php
+                $vehiclePhotos = $repairOrder->vehicle?->photos ?? collect();
+                $orPhotos = $repairOrder->photos ?? collect();
+            @endphp
+            @if($vehiclePhotos->count() > 0 || $orPhotos->count() > 0)
             <div class="bg-white rounded-xl border border-gray-200 p-5">
-                <h2 class="text-base font-semibold text-gray-800 mb-4">Photos</h2>
-                @foreach(['avant' => 'Avant réparation', 'pendant' => 'Pendant réparation', 'apres' => 'Après réparation'] as $moment => $label)
-                    @php $momentPhotos = $repairOrder->photos->where('moment', $moment); @endphp
-                    @if($momentPhotos->count() > 0)
-                    <div class="mb-4">
-                        <p class="text-xs font-semibold text-gray-500 uppercase mb-2">{{ $label }}</p>
-                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            @foreach($momentPhotos as $photo)
-                            <div class="relative group rounded-lg overflow-hidden border border-gray-200">
-                                <img src="{{ $photo->url }}" alt="{{ $photo->caption }}" class="w-full h-32 object-cover">
-                                @if($photo->caption)
-                                    <p class="text-xs text-gray-500 p-1.5 bg-gray-50">{{ $photo->caption }}</p>
-                                @endif
-                                @if(auth()->user()->hasAnyRole(['admin', 'gestionnaire']))
-                                <form method="POST" action="{{ route('repair-orders.photos.delete', [$repairOrder, $photo]) }}"
-                                      class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    @csrf @method('DELETE')
-                                    <button type="submit" onclick="return confirm('Supprimer cette photo ?')"
-                                            class="w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600">
-                                        <i data-lucide="x" class="w-3 h-3"></i>
-                                    </button>
-                                </form>
-                                @endif
-                            </div>
-                            @endforeach
+                <h2 class="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                    <i data-lucide="camera" class="w-5 h-5 text-gray-400"></i>
+                    Photos du véhicule
+                    <span class="text-xs text-gray-400 font-normal">({{ $vehiclePhotos->count() + $orPhotos->count() }})</span>
+                </h2>
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    @foreach($vehiclePhotos as $photo)
+                    <div class="relative group rounded-lg overflow-hidden border border-gray-200 aspect-square">
+                        <img src="{{ asset('storage/' . $photo->path) }}" alt="{{ $photo->type ?? 'Photo' }}"
+                             class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200">
+                        <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
+                            <span class="text-xs text-white font-medium">{{ ucfirst($photo->type ?? 'Véhicule') }}</span>
                         </div>
                     </div>
-                    @endif
-                @endforeach
+                    @endforeach
+                    @foreach($orPhotos as $photo)
+                    <div class="relative group rounded-lg overflow-hidden border border-blue-200 aspect-square">
+                        <img src="{{ asset('storage/' . $photo->path) }}" alt="{{ $photo->moment ?? 'Photo' }}"
+                             class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200">
+                        <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-blue-900/60 to-transparent p-2">
+                            <span class="text-xs text-white font-medium">{{ ucfirst($photo->moment ?? 'OR') }}</span>
+                        </div>
+                        @if(!in_array($repairOrder->status, ['facture', 'annule']) && auth()->user()->hasAnyRole(['admin', 'gestionnaire']))
+                        <form method="POST" action="{{ route('repair-orders.photos.delete', [$repairOrder, $photo]) }}" class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition">
+                            @csrf @method('DELETE')
+                            <button type="submit" onclick="return confirm('Supprimer cette photo ?')"
+                                    class="w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600">x</button>
+                        </form>
+                        @endif
+                    </div>
+                    @endforeach
+                </div>
             </div>
             @endif
+
         </div>
 
         {{-- ═══════════ COLONNE DROITE (1/3) ═══════════ --}}
         <div class="space-y-4">
-            {{-- Informations clés --}}
+
+            {{-- Informations --}}
             <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
                 <h2 class="text-base font-semibold text-gray-800">Informations</h2>
                 <div class="space-y-2.5 text-sm">
-                    <div class="flex justify-between">
-                        <span class="text-gray-500 text-xs">Réception</span>
-                        <span class="text-gray-700 font-medium text-xs">{{ $repairOrder->date_reception->format('d/m/Y') }}</span>
-                    </div>
+                    <div class="flex justify-between"><span class="text-gray-500 text-xs">Réception</span><span class="text-gray-700 font-medium text-xs">{{ $repairOrder->date_reception->format('d/m/Y') }}</span></div>
                     @if($repairOrder->date_prevue_livraison)
-                    <div class="flex justify-between">
-                        <span class="text-gray-500 text-xs">Livraison prévue</span>
-                        <span class="text-xs {{ $repairOrder->is_late ? 'text-red-600 font-bold' : 'text-gray-700 font-medium' }}">
-                            {{ $repairOrder->date_prevue_livraison->format('d/m/Y') }}
-                        </span>
-                    </div>
+                    <div class="flex justify-between"><span class="text-gray-500 text-xs">Livraison prévue</span><span class="text-xs {{ $repairOrder->is_late ? 'text-red-600 font-bold' : 'text-gray-700 font-medium' }}">{{ $repairOrder->date_prevue_livraison->format('d/m/Y') }}</span></div>
                     @endif
                     @if($repairOrder->date_livraison_effective)
-                    <div class="flex justify-between">
-                        <span class="text-gray-500 text-xs">Livraison effective</span>
-                        <span class="text-gray-700 font-medium text-xs">{{ $repairOrder->date_livraison_effective->format('d/m/Y') }}</span>
-                    </div>
+                    <div class="flex justify-between"><span class="text-gray-500 text-xs">Livraison effective</span><span class="text-gray-700 font-medium text-xs">{{ $repairOrder->date_livraison_effective->format('d/m/Y') }}</span></div>
                     @endif
                     @if($repairOrder->duree_reelle)
-                    <div class="flex justify-between">
-                        <span class="text-gray-500 text-xs">Durée réelle</span>
-                        <span class="text-gray-700 font-medium text-xs">{{ $repairOrder->duree_reelle }}</span>
-                    </div>
+                    <div class="flex justify-between"><span class="text-gray-500 text-xs">Durée réelle</span><span class="text-gray-700 font-medium text-xs">{{ $repairOrder->duree_reelle }}</span></div>
                     @endif
                     <div class="pt-2 border-t border-gray-100">
-                        <div class="flex justify-between">
-                            <span class="text-gray-500 text-xs">Technicien</span>
-                            <span class="text-gray-700 font-medium text-xs">{{ $repairOrder->technicien?->name ?? 'Non assigné' }}</span>
-                        </div>
+                        <div class="flex justify-between"><span class="text-gray-500 text-xs">Technicien</span><span class="text-gray-700 font-medium text-xs">{{ $repairOrder->technicien?->name ?? 'Non assigné' }}</span></div>
                     </div>
                     @if($repairOrder->source_ordre)
-                    <div class="flex justify-between">
-                        <span class="text-gray-500 text-xs">Source</span>
-                        <span class="text-gray-700 text-xs">{{ \App\Models\RepairOrder::SOURCES[$repairOrder->source_ordre] ?? $repairOrder->source_ordre }}</span>
-                    </div>
+                    <div class="flex justify-between"><span class="text-gray-500 text-xs">Source</span><span class="text-gray-700 text-xs">{{ \App\Models\RepairOrder::SOURCES[$repairOrder->source_ordre] ?? $repairOrder->source_ordre }}</span></div>
+                    @endif
+                    @if($repairOrder->expert)
+                    <div class="flex justify-between"><span class="text-gray-500 text-xs">Expert</span><span class="text-gray-700 text-xs">{{ $repairOrder->expert->nom_complet }}</span></div>
                     @endif
                 </div>
             </div>
 
-            {{-- État du véhicule à la réception --}}
+            {{-- État véhicule --}}
             <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
                 <h2 class="text-base font-semibold text-gray-800">État véhicule</h2>
                 <div class="space-y-2.5 text-sm">
-                    <div class="flex justify-between">
-                        <span class="text-gray-500 text-xs">KM entrée</span>
-                        <span class="text-gray-700 font-mono text-xs">{{ $repairOrder->kilometrage_entree ? number_format($repairOrder->kilometrage_entree, 0, '', ' ') . ' km' : '—' }}</span>
-                    </div>
+                    <div class="flex justify-between"><span class="text-gray-500 text-xs">KM entrée</span><span class="text-gray-700 font-mono text-xs">{{ $repairOrder->kilometrage_entree ? number_format($repairOrder->kilometrage_entree, 0, '', ' ') . ' km' : '—' }}</span></div>
                     @if($repairOrder->kilometrage_sortie)
-                    <div class="flex justify-between">
-                        <span class="text-gray-500 text-xs">KM sortie</span>
-                        <span class="text-gray-700 font-mono text-xs">{{ number_format($repairOrder->kilometrage_sortie, 0, '', ' ') }} km</span>
-                    </div>
+                    <div class="flex justify-between"><span class="text-gray-500 text-xs">KM sortie</span><span class="text-gray-700 font-mono text-xs">{{ number_format($repairOrder->kilometrage_sortie, 0, '', ' ') }} km</span></div>
                     @endif
-                    <div class="flex justify-between">
-                        <span class="text-gray-500 text-xs">Carburant</span>
-                        <span class="text-gray-700 text-xs">{{ $repairOrder->niveau_carburant ?? '—' }}</span>
-                    </div>
+                    <div class="flex justify-between"><span class="text-gray-500 text-xs">Carburant</span><span class="text-gray-700 text-xs">{{ $repairOrder->niveau_carburant ?? '—' }}</span></div>
                 </div>
             </div>
 
-            {{-- Résumé financier --}}
-            <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
-                <h2 class="text-base font-semibold text-gray-800">Résumé financier</h2>
-                <div class="space-y-2 text-sm">
-                    <div class="flex justify-between">
-                        <span class="text-gray-500 text-xs">Total HT</span>
-                        <span class="text-gray-700 text-xs">{{ number_format($repairOrder->total_ht, 2, ',', ' ') }} DH</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span class="text-gray-500 text-xs">TVA ({{ $repairOrder->taux_tva }}%)</span>
-                        <span class="text-gray-700 text-xs">{{ number_format($repairOrder->montant_tva, 2, ',', ' ') }} DH</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span class="text-gray-500 text-xs">Total TTC</span>
-                        <span class="text-gray-700 text-xs">{{ number_format($repairOrder->total_ttc, 2, ',', ' ') }} DH</span>
-                    </div>
-                    @if($repairOrder->remise_globale > 0)
-                    <div class="flex justify-between">
-                        <span class="text-red-500 text-xs">Remise</span>
-                        <span class="text-red-600 text-xs">-{{ number_format($repairOrder->remise_globale, 2, ',', ' ') }} DH</span>
+            {{-- ═══════════ DOCUMENTS LIÉS ═══════════ --}}
+            <div class="bg-white rounded-xl border border-gray-200 p-5">
+                <h2 class="text-base font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                    <i data-lucide="folder-open" class="w-5 h-5 text-gray-400"></i>
+                    Documents
+                </h2>
+                <div class="space-y-2">
+                    @if($repairOrder->quote)
+                    <a href="{{ route('quotes.show', $repairOrder->quote) }}" class="flex items-center gap-3 p-2.5 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition group">
+                        <span class="w-8 h-8 flex items-center justify-center rounded-lg bg-blue-100 text-blue-600 text-xs font-bold">DV</span>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium text-gray-800 group-hover:text-blue-700 truncate">{{ $repairOrder->quote->numero }}</p>
+                            <p class="text-xs text-gray-400">Devis initial</p>
+                        </div>
+                    </a>
+                    @endif
+
+                    @php $additifQuotes = \App\Models\Quote::where('linked_repair_order_id', $repairOrder->id)->get(); @endphp
+                    @foreach($additifQuotes as $aq)
+                    <a href="{{ route('quotes.show', $aq) }}" class="flex items-center gap-3 p-2.5 rounded-lg border border-amber-200 hover:bg-amber-50 transition group">
+                        <span class="w-8 h-8 flex items-center justify-center rounded-lg bg-amber-100 text-amber-600 text-xs font-bold">DA</span>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium text-gray-800 group-hover:text-amber-700 truncate">{{ $aq->numero }}</p>
+                            <p class="text-xs text-amber-500">Devis additif — {!! $aq->statut_badge !!}</p>
+                        </div>
+                    </a>
+                    @endforeach
+
+                    @if($repairOrder->invoice)
+                    <a href="{{ route('invoices.show', $repairOrder->invoice) }}" class="flex items-center gap-3 p-2.5 rounded-lg border border-gray-200 hover:bg-green-50 hover:border-green-200 transition group">
+                        <span class="w-8 h-8 flex items-center justify-center rounded-lg bg-green-100 text-green-600 text-xs font-bold">FA</span>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium text-gray-800 group-hover:text-green-700 truncate">{{ $repairOrder->invoice->numero }}</p>
+                            <p class="text-xs text-gray-400">Facture — {!! $repairOrder->invoice->statut_badge !!}</p>
+                        </div>
+                        <span class="text-xs font-medium text-gray-600">{{ number_format($repairOrder->invoice->net_a_payer, 2, ',', ' ') }} DH</span>
+                    </a>
+                    @endif
+
+                    @if($repairOrder->deliveryNote)
+                    <a href="{{ route('delivery-notes.show', $repairOrder->deliveryNote) }}" class="flex items-center gap-3 p-2.5 rounded-lg border border-gray-200 hover:bg-indigo-50 hover:border-indigo-200 transition group">
+                        <span class="w-8 h-8 flex items-center justify-center rounded-lg bg-indigo-100 text-indigo-600 text-xs font-bold">BL</span>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium text-gray-800 group-hover:text-indigo-700 truncate">{{ $repairOrder->deliveryNote->numero }}</p>
+                            <p class="text-xs text-gray-400">Bon de livraison</p>
+                        </div>
+                    </a>
+                    @endif
+
+                    @foreach($repairOrder->purchaseOrders as $po)
+                    <a href="{{ route('suppliers.order', [$po->supplier_id, $po]) }}" class="flex items-center gap-3 p-2.5 rounded-lg border border-gray-200 hover:bg-orange-50 hover:border-orange-200 transition group">
+                        <span class="w-8 h-8 flex items-center justify-center rounded-lg bg-orange-100 text-orange-600 text-xs font-bold">BC</span>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium text-gray-800 group-hover:text-orange-700 truncate">{{ $po->numero }}</p>
+                            <p class="text-xs text-gray-400">Bon de commande — {{ $po->supplier?->raison_sociale }}</p>
+                        </div>
+                    </a>
+                    @endforeach
+
+                    @if(!$repairOrder->quote && !$repairOrder->invoice && !$repairOrder->deliveryNote && $repairOrder->purchaseOrders->isEmpty() && $additifQuotes->isEmpty())
+                    <p class="text-xs text-gray-400 text-center py-3">Aucun document lié</p>
+                    @endif
+
+                    @if(auth()->user()->hasAnyRole(['admin', 'gestionnaire']) && !in_array($repairOrder->status, ['annule']))
+                    <div class="pt-2 border-t border-gray-100 mt-2 space-y-1.5">
+                        @if(!$repairOrder->invoice || $repairOrder->invoice->statut === 'annulee')
+                        <form action="{{ route('repair-orders.generate-invoice', $repairOrder) }}" method="POST">
+                            @csrf
+                            <button type="submit" class="w-full flex items-center gap-2 px-3 py-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition">
+                                <i data-lucide="receipt" class="w-3.5 h-3.5"></i> Générer la facture
+                            </button>
+                        </form>
+                        @endif
+                        @if(!$repairOrder->deliveryNote)
+                        <form action="{{ route('repair-orders.generate-delivery-note', $repairOrder) }}" method="POST">
+                            @csrf
+                            <button type="submit" class="w-full flex items-center gap-2 px-3 py-2 text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition">
+                                <i data-lucide="truck" class="w-3.5 h-3.5"></i> Générer le bon de livraison
+                            </button>
+                        </form>
+                        @endif
                     </div>
                     @endif
-                    <div class="pt-2 border-t border-gray-200 flex justify-between">
-                        <span class="font-semibold text-gray-700 text-xs">Net à payer</span>
-                        <span class="font-bold text-primary-600">{{ number_format($repairOrder->net_a_payer, 2, ',', ' ') }} DH</span>
+                </div>
+            </div>
+
+            {{-- ═══════════ RENTABILITÉ ═══════════ --}}
+            <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+                <h2 class="text-base font-semibold text-gray-800 flex items-center gap-2">
+                    <i data-lucide="bar-chart-3" class="w-5 h-5 text-gray-400"></i>
+                    Rentabilité
+                </h2>
+                <div class="space-y-2 text-sm">
+                    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Coûts de revient</p>
+                    <div class="flex justify-between"><span class="text-gray-500 text-xs">Coût pièces</span><span class="text-gray-700 text-xs">{{ number_format($resumeFinancier['cout_pieces'], 2, ',', ' ') }} DH</span></div>
+                    <div class="flex justify-between"><span class="text-gray-500 text-xs">Coût main-d'oeuvre</span><span class="text-gray-700 text-xs">{{ number_format($resumeFinancier['cout_main_oeuvre'], 2, ',', ' ') }} DH</span></div>
+                    <div class="flex justify-between pt-1 border-t border-dashed border-gray-200"><span class="text-gray-600 text-xs font-medium">Total dépenses</span><span class="text-red-600 text-xs font-semibold">{{ number_format($resumeFinancier['cout_total'], 2, ',', ' ') }} DH</span></div>
+
+                    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider pt-2">Facturation</p>
+                    <div class="flex justify-between"><span class="text-gray-500 text-xs">Prix facturé HT</span><span class="text-gray-700 text-xs">{{ number_format($resumeFinancier['prix_facture_ht'], 2, ',', ' ') }} DH</span></div>
+                    <div class="flex justify-between"><span class="text-gray-500 text-xs">TVA</span><span class="text-gray-700 text-xs">{{ number_format($resumeFinancier['tva'], 2, ',', ' ') }} DH</span></div>
+                    <div class="flex justify-between"><span class="text-gray-600 text-xs font-medium">Total TTC</span><span class="text-gray-800 text-xs font-semibold">{{ number_format($resumeFinancier['prix_facture_ttc'], 2, ',', ' ') }} DH</span></div>
+
+                    @php $isPositive = $resumeFinancier['benefice'] >= 0; @endphp
+                    <div class="pt-2 border-t border-gray-200 space-y-1.5">
+                        <div class="flex justify-between"><span class="text-gray-700 text-xs font-semibold">Profit net</span><span class="font-bold text-xs {{ $isPositive ? 'text-green-600' : 'text-red-600' }}">{{ $isPositive ? '+' : '' }}{{ number_format($resumeFinancier['benefice'], 2, ',', ' ') }} DH</span></div>
+                        <div class="flex justify-between items-center"><span class="text-gray-700 text-xs font-semibold">Marge</span><span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border {{ $isPositive ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200' }}">{{ $resumeFinancier['marge'] }}%</span></div>
+                        @if($resumeFinancier['prix_facture_ht'] > 0)
+                        <div class="w-full bg-gray-100 rounded-full h-2 mt-1">
+                            <div class="h-2 rounded-full {{ $isPositive ? 'bg-green-500' : 'bg-red-500' }}" style="width: {{ min(100, max(0, abs($resumeFinancier['marge']))) }}%"></div>
+                        </div>
+                        @endif
                     </div>
                 </div>
             </div>
@@ -355,12 +421,12 @@
             </div>
             @endif
 
-            {{-- Actions danger --}}
+            {{-- Zone danger --}}
             @if(auth()->user()->isAdmin() && !in_array($repairOrder->status, ['facture']))
             <div class="bg-white rounded-xl border border-red-200 p-5">
                 <h2 class="text-xs font-semibold text-red-500 uppercase mb-3">Zone de danger</h2>
                 <form method="POST" action="{{ route('repair-orders.destroy', $repairOrder) }}"
-                      x-data @submit.prevent="if(confirm('Supprimer définitivement l\'ordre {{ $repairOrder->numero }} ?')) $el.submit()">
+                      x-data @submit.prevent="if(confirm('Supprimer définitivement cet ordre ?')) $el.submit()">
                     @csrf @method('DELETE')
                     <button type="submit" class="w-full py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors flex items-center justify-center gap-2">
                         <i data-lucide="trash-2" class="w-4 h-4"></i> Supprimer cet ordre
